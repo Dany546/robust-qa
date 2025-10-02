@@ -1,0 +1,35 @@
+use crate::data::columnar::ColumnarTable;
+
+/// Extract x and y vectors from ColumnarTable
+pub fn get_xy_for_method(
+    ct: &ColumnarTable,
+    method: &str,
+    drop_level: f64,
+    metric: &str,
+    aggregation: &str,
+    metric_agg: &str,
+    pref: &str,
+) -> Option<(Vec<f64>, Vec<f64>)> {
+    use crate::data::loader::make_xy_column_names;
+
+    let (x_col, y_col) = make_xy_column_names(method, drop_level, metric, aggregation, metric_agg, pref);
+    let x = ct.column_f64(&x_col)?;
+    let y = ct.column_f64(&y_col)?;
+    Some((x, y))
+}
+
+/// Get x and y vectors for a dataset/method/drop_level/metric combo
+pub fn get_xy_for_method_row_wise(
+    ct: &ColumnarTable,
+    method: &str,
+    drop_level: f64,
+    metric: &str,
+    aggregation_aggregation: &str,
+    metric_aggregation: &str,
+    pref: &str
+) -> Option<(Vec<f64>, Vec<f64>)> {
+    use crate::trace::make_xy_column_names;
+
+    let (x_col, y_col) = make_xy_column_names(method, drop_level, metric, aggregation_aggregation, metric_aggregation, pref);
+    Some(extract_xy_columnar(ct, &[&x_col], &[&y_col]))
+}

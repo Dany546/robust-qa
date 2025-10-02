@@ -7,14 +7,14 @@ use std::error::Error;
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        println!("Usage: uq_project <compute_robust|plot>");
+        println!("Usage: uq_project <compute|plot>");
         return Ok(());
     }
 
     match args[1].as_str() {
         "compute_robust" => compute_robust::run()?,
         "plot" => plot::run()?,
-        _ => println!("Unknown command. Use 'compute_robust' or 'plot'."),
+        _ => println!("Unknown command. Use 'compute' or 'plot'."),
     }
 
     Ok(())
