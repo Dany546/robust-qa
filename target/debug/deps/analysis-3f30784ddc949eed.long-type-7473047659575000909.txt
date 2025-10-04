@@ -1,0 +1,1 @@
+ConsTuples<itertools::Product<itertools::Product<std::iter::Copied<std::slice::Iter<'_, f64>>, std::iter::Copied<std::slice::Iter<'_, std::string::String>>>, std::iter::Copied<std::slice::Iter<'_, std::string::String>>>, ((f64, std::string::String), std::string::String)>

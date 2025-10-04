@@ -1,0 +1,1 @@
+std::iter::Map<ConsTuples<itertools::Product<ConsTuples<itertools::Product<itertools::Product<std::iter::Copied<std::slice::Iter<'_, f64>>, std::slice::Iter<'_, &str>>, std::slice::Iter<'_, &str>>, ((f64, &&str), &&str)>, std::slice::Iter<'_, &str>>, ((f64, &&str, &&str), &&str)>, {closure@analysis/src/data/utils.rs:63:27: 63:60}>
