@@ -4,28 +4,28 @@ use rand::rngs::StdRng;
 use interp1d::{Interp1d, error::InterpError};
 
 /// Compute precision and false negative rate for a threshold
-pub fn compute_precision_fnr(
+pub fn compute_tp_fn(
     xb: &[f64], 
     yb: &[f64], 
     thy: f64, 
     quantiles: &[f64]
 ) -> (Vec<f64>, Vec<f64>) {
-    let mut precision = Vec::with_capacity(quantiles.len());
+    let mut tp = Vec::with_capacity(quantiles.len());
     let mut fnr = Vec::with_capacity(quantiles.len());
 
     for &th in quantiles {
         let n_y_high = yb.iter().filter(|&&v| v >= thy && v < 1.0).count();
         if n_y_high == 0 {
-            precision.push(1.0);
-            fnr.push(1.0);
+            tp.push(0.0);
+            fnr.push(0.0);
         } else {
-            let tp = xb.iter().zip(yb.iter()).filter(|(&xi, &yi)| xi >= th && yi >= thy && yi < 1.0).count();
+            let tp_val = xb.iter().zip(yb.iter()).filter(|(&xi, &yi)| xi >= th && yi >= thy && yi < 1.0).count();
             let fn_val = xb.iter().zip(yb.iter()).filter(|(&xi, &yi)| xi >= th && yi < thy && yi < 1.0).count();
-            precision.push(tp as f64 / yb.len() as f64);
+            tp.push(tp_val as f64 / yb.len() as f64);
             fnr.push(fn_val as f64 / yb.len() as f64);
         }
     }
-    (precision, fnr)
+    (tp, fnr)
 }
 
 /// Aggregate bootstrapped curves: mean or percentile
@@ -61,59 +61,72 @@ pub fn bootstrap_sample(x: &[f64], y: &[f64], n: usize, rng: &mut impl Rng) -> (
 }
 
 /// Linear interpolation (unsafe fast version)
-pub fn linear_interpolate(x: &[f64], y: &[f64], xi: f64, n: usize) -> f64 {
-    // trivial cases
-    if xi < x[0] { eprintln!("too small {}", x[0]); return (y[0] * (xi - x[0]) + xi) / x[0]; } // lever rule between (0, 1) and first point
-    if xi > x[n-1] { eprintln!("too big"); return f64::NAN; }
-    if xi == x[n-1] { return y[n-1]; }
+pub fn linear_interpolate(tp: &[f64], fnr: &[f64], quantiles: &[f64], xi: f64, n: usize) -> (f64, f64) {
     
-    let interp = Interp1d::new_sorted(x.to_vec(), y.to_vec());
-    let yi = match interp {
+    let mut p = Vec::with_capacity(n + 1);
+    let mut f = Vec::with_capacity(n + 1);
+    let mut q = Vec::with_capacity(n + 1); 
+    // Prepend (0, 1) the (fn, tp) curve
+    p.push(1.0); f.push(0.0);  
+    // Then append the real data
+    p.extend_from_slice(&tp); 
+    f.extend_from_slice(&fnr); 
+    q.extend_from_slice(&quantiles); 
+    // append 1 to the quantiles
+    q.push(1.0);
+    
+    let interp = Interp1d::new_sorted(f.clone(), p);
+    let tp_val = match interp {
         Ok(i) => i.interpolate(xi),
         Err(e) => {
             eprintln!("Interpolation failed: {:?}", e);
-            return f64::NAN; 
+            f64::NAN
         }
     };
-    yi
+    let interp = Interp1d::new_sorted(f, q);
+    let th_val = match interp {
+        Ok(i) => i.interpolate(xi),
+        Err(e) => {
+            eprintln!("Interpolation failed: {:?}", e);
+            f64::NAN
+        }
+    };
+    (th_val, tp_val)
 }
 
 /// Compute precision at target FNR robustly
-pub fn precision_at_robust(
+pub fn tp_at_robust(
     x: &[f64],
     y: &[f64],
-    quality_thresholds: &[f64],
     quantiles: &[f64],
+    quality_thresholds: &[f64],
     n_bootstrap: usize,
     method: &str,
     metric: &str,
     q: f64
 ) -> (Vec<f64>, Vec<f64>) {
-    let mut all_precision = Vec::with_capacity(quality_thresholds.len());
-    let mut all_thx = Vec::with_capacity(quality_thresholds.len());
-    let n = quantiles.len();
+    let nq = quantiles.len();
+    let n = x.len();
     let conf = if metric.to_lowercase().contains("adpl") { 0.05 } else { 0.95 };
+    let mut all_tp = Vec::with_capacity(quality_thresholds.len());
+    let mut all_thx = Vec::with_capacity(quality_thresholds.len());
 
     for &thy in quality_thresholds {
-        let (precision_curves, fnr_curves): (Vec<_>, Vec<_>) = (0..n_bootstrap)
+        let (tp_curves, fn_curves): (Vec<_>, Vec<_>) = (0..n_bootstrap)
             .into_par_iter()
             .map(|i| {
                 let mut rng = StdRng::seed_from_u64(i as u64);
                 let (xb, yb) = bootstrap_sample(x, y, n, &mut rng);
-                compute_precision_fnr(&xb, &yb, thy, &quantiles)
+                compute_tp_fn(&xb, &yb, thy, &quantiles)
             }).unzip();
 
-        let precision_agg = aggregate_curves(&precision_curves, method, 1.0 - conf, n_bootstrap);
-        let fnr_agg = aggregate_curves(&fnr_curves, method, conf, n_bootstrap);
+        let tp_agg = aggregate_curves(&tp_curves, method, 1.0 - conf, n_bootstrap);
+        let fn_agg = aggregate_curves(&fn_curves, method, conf, n_bootstrap);
         
-        let (thx, precision_at_q) = { 
-            let th_val = linear_interpolate(&fnr_agg, &quantiles, q, n);
-            let prec_val = linear_interpolate(&fnr_agg, &precision_agg, q, n);
-            (th_val, prec_val)
-        };
+        let (thx, tp_at_q) = linear_interpolate(&tp_agg, &fn_agg, &quantiles, q, nq);
 
-        all_precision.push(precision_at_q);
+        all_tp.push(tp_at_q);
         all_thx.push(thx);
     }
-    (all_precision, all_thx)
+    (all_tp, all_thx)
 }

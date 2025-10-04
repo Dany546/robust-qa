@@ -20,4 +20,6 @@ bincode = "1.3"
 tokio = { version = "1", features = ["full"] }
 indicatif = "0.18"   # For progress bars
 crossbeam = "0.8"    # Optional: faster lock-free channels if needed
+futures = "0.3" 
+
 

@@ -1,5 +1,6 @@
+#![allow(unused)]
 mod compute_robust;
-mod plotting;
+mod plot;
 
 use std::env;
 use std::error::Error;
@@ -13,7 +14,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match args[1].as_str() {
         "compute" => compute_robust::run()?,
-        "plot" => plotting::run()?,
         _ => println!("Unknown command. Use 'compute' or 'plot'."),
     }
 

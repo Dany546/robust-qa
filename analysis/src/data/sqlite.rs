@@ -5,6 +5,59 @@ use crate::data::loader::TraceData;
 use crate::data::utils::{make_xy_column_names}; 
 use crate::data::columnar::ColumnarTable;
 use tokio::task;
+use tokio::sync::mpsc;
+use serde_json::Value;
+use std::sync::mpsc::Receiver;
+
+#[derive(Clone)]
+pub struct TraceRow {
+    pub x_col: String,
+    pub y_col: String,
+    pub fnr: f64,
+    pub drop_level: f64,
+    pub th: Vec<f64>,
+    pub xs: Vec<f64>,
+    pub ys: Vec<f64>,
+}
+
+
+pub fn save_traces(
+    rx: Receiver<TraceRow>,
+    db_path: String,
+) -> anyhow::Result<()> {
+    let mut conn = Connection::open(db_path)?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS traces (
+            x_col TEXT, y_col TEXT, fnr REAL, drop_level REAL,
+            th BLOB, xs BLOB, ys BLOB
+        );",
+    )?;
+
+    let tx = conn.transaction()?;
+    for row in rx {
+        // --- PANIC CHECK ---
+        if row.th.is_empty() || row.ys.is_empty() {
+            panic!(
+                "TraceRow has empty vector! x_col={}, y_col={}, fnr={}, drop_level={} {} {}",
+                row.x_col, row.y_col, row.fnr, row.drop_level, row.th.is_empty(), row.ys.is_empty()
+            );
+        }
+        tx.execute(
+            "INSERT INTO traces (x_col, y_col, fnr, drop_level, th, xs, ys) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![
+                row.x_col,
+                row.y_col,
+                row.fnr,
+                row.drop_level,
+                bincode::serialize(&row.th)?,
+                bincode::serialize(&row.xs)?,
+                bincode::serialize(&row.ys)?,
+            ],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
 
 pub async fn save_traces_sqlite(
     traces_table: &ColumnarTable,
@@ -28,7 +81,7 @@ pub async fn save_traces_sqlite(
             "CREATE TABLE trace_data (
                 method TEXT, dataset TEXT, drop_level REAL, fnr REAL,
                 metric TEXT, aggregation TEXT, metric_aggregation TEXT,
-                xs BLOB, th BLOB, ys BLOB
+                th BLOB, xs BLOB, ys BLOB
             )",
             [],
         )?;
@@ -36,7 +89,7 @@ pub async fn save_traces_sqlite(
         let tx = conn.transaction()?; // wrap all inserts in a transaction
         let mut stmt = tx.prepare(
             "INSERT INTO trace_data
-                (method,dataset,drop_level,fnr,metric,aggregation,metric_aggregation,xs,th,ys)
+                (method,dataset,drop_level,fnr,metric,aggregation,metric_aggregation,th,xs,ys)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)"
         )?;
 
@@ -54,11 +107,10 @@ pub async fn save_traces_sqlite(
             );
 
             if xs.is_empty() || ys.is_empty() || th.is_empty() {
-                eprintln!(
+                panic!(
                     "Warning: skipping empty columns: xs={} ys={} th={}",
                     xs.len(), ys.len(), th.len()
                 );
-                continue;
             }
 
             let trace = TraceData {
@@ -106,7 +158,7 @@ pub async fn save_traces_sqlite(
 pub fn load_traces_sqlite(path: &str) -> Result<ColumnarTable, anyhow::Error> {
     let conn = Connection::open(path)?;
     let mut stmt = conn.prepare(
-        "SELECT method,dataset,drop_level,fnr,metric,aggregation,metric_aggregation,xs,th,ys FROM trace_data"
+        "SELECT method,dataset,drop_level,fnr,metric,aggregation,metric_aggregation,th,xs,ys FROM trace_data"
     )?;
     
     let trace_iter = stmt.query_map([], |row| {
@@ -118,8 +170,8 @@ pub fn load_traces_sqlite(path: &str) -> Result<ColumnarTable, anyhow::Error> {
             metric: row.get(4)?,
             aggregation: row.get(5)?,
             metric_aggregation: row.get(6)?,
-            xs: bincode::deserialize(&row.get::<_, Vec<u8>>(7)?).unwrap_or_default(),
             th: bincode::deserialize(&row.get::<_, Vec<u8>>(8)?).unwrap_or_default(),
+            xs: bincode::deserialize(&row.get::<_, Vec<u8>>(7)?).unwrap_or_default(),
             ys: bincode::deserialize(&row.get::<_, Vec<u8>>(9)?).unwrap_or_default(),
         })
     })?;

@@ -22,18 +22,20 @@ impl ColumnarTable {
         Self { n_rows, data, vector_data }
     }
 
-    /// Return a slice reference to a scalar column, or empty slice if not found
+    /// Return a slice reference to a scalar column; panic if not found
     pub fn column_f64(&self, col: &str) -> &[f64] {
-        let out = self.data.get(col).map(|v| v.as_slice()).unwrap_or(&[]);
-        if out.iter().any(|v| v.is_nan()) {
-            println!("col {} contains NaNs", col);
-        }
-        out
+        self.data
+            .get(col)
+            .unwrap_or_else(|| panic!("Scalar column '{}' not found", col))
+            .as_slice()
     }
 
-    /// Return a slice reference to a vector column, or empty slice if not found
+    /// Return a slice reference to a vector column; panic if not found
     pub fn vector_column(&self, col: &str) -> &[Vec<f64>] {
-        self.vector_data.get(col).map(|v| v.as_slice()).unwrap_or(&[])
+        self.vector_data
+            .get(col)
+            .unwrap_or_else(|| panic!("Vector column '{}' not found", col))
+            .as_slice()
     }
 
     pub fn len(&self) -> usize {
@@ -41,7 +43,7 @@ impl ColumnarTable {
     }
 }
 
-pub fn load_dataset(
+pub async fn load_dataset(
     json_path: &str,
     sqlite_path: &str,
     combinations: &Vec<(String, String, f64)>,
@@ -134,7 +136,7 @@ pub fn load_dataset(
         .collect(); 
 
     // Save SQLite cache
-    save_to_sqlite_parallel(sqlite_path.to_string(), needed_cols, columns.clone());
+    // let _ = save_to_sqlite_parallel(sqlite_path.to_string(), needed_cols, columns.clone()).await;
     
     Ok(ColumnarTable::new(n_rows, columns, HashMap::new()))
 }
